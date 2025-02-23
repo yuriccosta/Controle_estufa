@@ -10,6 +10,7 @@
 #include "hardware/gpio.h"
 #include "hardware/pwm.h"
 #include "hardware/adc.h"
+#include "pico/bootrom.h"
 
 #include "animacao_matriz.pio.h" // Biblioteca PIO para controle de LEDs WS2818B
 
@@ -42,7 +43,77 @@ static volatile uint green_state = 0; // Variável para armazenar o estado do LE
 static volatile uint led_pwm = 1; // Variável para habilitar/desabilitar o controle PWM dos LEDs
 static volatile uint cor = 0; // Variável para armazenar a cor da borda do display
 
+// Variáveis de configuração para os atuadores
+int temp_min =  20; // Temperatura mínima
+int temp_max =  35; // Temperatura máxima
+uint umid_min =  30; // Umidade mínima
+uint umid_max =  70; // Umidade máxima
+int fan_med =  50; // Velocidade média do ventilador
+uint bomb_time = 30000; // Tempo de acionamento da bomba
+uint bomb_duration = 5000; // Duração do acionamento da bomba
 
+
+uint padrao_led[10][LED_COUNT] = {
+    {0, 0, 1, 0, 0,
+     0, 1, 1, 1, 0,
+     1, 1, 1, 1, 1,
+     1, 1, 1, 1, 1,
+     0, 1, 1, 1, 0,
+    }, // Umidificador Ativo (Desenho de gota)
+    {2, 0, 0, 2, 0,
+     0, 2, 0, 0, 2,
+     2, 0, 0, 2, 0,
+     0, 2, 0, 0, 2,
+     2, 0, 0, 2, 0,
+    }, // Desumidificador ativo (Desenho de Seco)
+    {1, 0, 1, 0, 1,
+     1, 0, 1, 0, 1,
+     0, 1, 1, 1, 0,
+     0, 1, 1, 1, 0,
+     0, 0, 1, 0, 0,
+    }, // Bomba de água ativa (Desenho de respingos pra cima)
+    {0, 0, 1, 0, 0,
+     0, 1, 1, 1, 0,
+     1, 1, 1, 1, 1,
+     1, 1, 1, 1, 1,
+     0, 1, 1, 1, 0,
+    },
+    {0, 0, 0, 0, 0,
+     0, 0, 0, 0, 0,
+     0, 0, 0, 0, 0,
+     0, 0, 0, 0, 0,
+     0, 0, 0, 0, 0,
+    } // Desliga os LEDs
+};
+
+// Ordem da matriz de LEDS, útil para poder visualizar na matriz do código e escrever na ordem correta do hardware
+int ordem[LED_COUNT] = {0, 1, 2, 3, 4, 9, 8, 7, 6, 5, 10, 11, 12, 13, 14, 19, 18, 17, 16, 15, 20, 21, 22, 23, 24};  
+
+
+//rotina para definição da intensidade de cores do led
+uint32_t matrix_rgb(unsigned r, unsigned g, unsigned b){
+    // Para não ficar forte demais, a intensidade de cor é multiplicada por 50
+    return (g << 24) | (r << 16) | (b << 8);
+}
+
+void display_desenho(int number){
+    uint32_t valor_led;
+
+    for (int i = 0; i < LED_COUNT; i++){
+        // Define a cor do LED de acordo com o padrão
+        if (padrao_led[number][ordem[24 - i]] == 1){
+            valor_led = matrix_rgb(0, 0, 10); // Azul
+        } else if (padrao_led[number][ordem[24 - i]] == 2){
+            valor_led = matrix_rgb(30, 10, 0); // 
+        } else if (padrao_led[number][ordem[24 - i]] == 3){
+            valor_led = matrix_rgb(1, 0, 0);
+        } else{
+            valor_led = matrix_rgb(0, 0, 0); // Desliga o LED
+        }
+        // Atualiza o LED
+        pio_sm_put_blocking(pio, sm, valor_led);
+    }
+}
 
 void pwm_setup(uint pino) {
     gpio_set_function(pino, GPIO_FUNC_PWM);         // Configura o pino como saída PWM
@@ -60,12 +131,10 @@ void pwm_setup(uint pino) {
 void configuraGPIO(){
     // Configuração do LED RGB
     pwm_setup(LED_PIN_RED);
-
     pwm_setup(LED_PIN_BLUE);
+    pwm_setup(LED_PIN_GREEN);
 
-    gpio_init(LED_PIN_GREEN);
-    gpio_set_dir(LED_PIN_GREEN, GPIO_OUT);
-    gpio_put(LED_PIN_GREEN, green_state);
+
 
     // Configura os botões
     gpio_init(BUTTON_PIN_A);
@@ -84,16 +153,16 @@ static void gpio_irq_handler(uint gpio, uint32_t events) {
    uint32_t current_time = to_ms_since_boot(get_absolute_time());
    // Verificação de tempo para debounce
    if (current_time - last_time > 200){
-       if(gpio == BUTTON_PIN_A){
-           led_pwm = !led_pwm;
-           printf("PWM alterado para %u\n", led_pwm);  
+        if(gpio == BUTTON_PIN_A){
+            // Entra no modo bootsel
+            reset_usb_boot(0, 0);
 
-       } else if (gpio == SW_PIN){
-           green_state = !green_state;
-           cor = !cor;
-           gpio_put(LED_PIN_GREEN, green_state);
+        } else if (gpio == SW_PIN){
+            green_state = !green_state;
+            cor = !cor;
+            gpio_put(LED_PIN_GREEN, green_state);
 
-       }
+        }
 
        last_time = current_time; // Atualiza o tempo do último evento
    }
@@ -142,12 +211,64 @@ int main(){
     while (true){
         // Leitura dos valores do joystick
         adc_select_input(1);  
-        uint16_t vrx_value = adc_read(); 
-
+        uint16_t vrx_value = adc_read(); // Lê o valor do eixo x (Umidade)
         adc_select_input(0);  
-        uint16_t vry_value = adc_read(); 
+        uint16_t vry_value = adc_read(); // Lê o valor do eixo y (Temperatura)
 
-        // Verifica se o controle PWM está habilitado
+        printf("Valor do eixo x: %u\n", vrx_value);
+        printf("Valor do eixo y: %u\n", vry_value);
+
+        uint16_t umid_atual = (abs(vrx_value - 2048) > zona_morta) ? ((vrx_value - 16)/ max_value_joy) * 100 : 50; // Converte o valor do eixo x para a faixa de 0 a 100
+        int16_t temp_atual =  ((vry_value - 16) / max_value_joy) * 95 - 10;  // Converte o valor do eixo y para a faixa de -10 a 85
+
+        printf("Temperatura: %d\n", temp_atual);
+        printf("Umidade: %u\n", umid_atual);
+
+        // Verifica se a temperatura está fora do intervalo
+        if (temp_atual < temp_min){
+            pwm_set_gpio_level(LED_PIN_RED, 0);
+            pwm_set_gpio_level(LED_PIN_BLUE, 0);
+            pwm_set_gpio_level(LED_PIN_GREEN, 0);
+        } else if (temp_atual > temp_max){
+            pwm_set_gpio_level(LED_PIN_RED, max_value_joy);
+            pwm_set_gpio_level(LED_PIN_BLUE, 0);
+            pwm_set_gpio_level(LED_PIN_GREEN, 0);
+        } else {
+            // Ajusta a intensidade do LED verde de acordo com a temperatura
+            pwm_set_gpio_level(LED_PIN_RED, 0);
+            pwm_set_gpio_level(LED_PIN_BLUE, 0);
+            pwm_set_gpio_level(LED_PIN_GREEN, (temp_atual - temp_min) * max_value_joy / (temp_max - temp_min));
+        }
+
+        // Verifica se a umidade está fora do intervalo
+        if (umid_atual < umid_min){
+            // Ativa umidificador
+            display_desenho(0); // Desenha o padrão de umidificador
+
+        } else if (umid_atual > umid_max){
+            // Ativa desumidificador
+            display_desenho(1); // Desenha o padrão de desumidificador
+        } else{
+            // Desliga umidificador e desumidificador
+            display_desenho(4); // Desliga os LEDs
+        }
+
+        // Mostra a temperatura e umidade no display
+        char stringT[20]; // String para armazenar a temperatura
+        char stringU[20]; // String para armazenar a umidade
+        sprintf(stringT, "Temp: %d C", temp_atual); // Formata a string
+        sprintf(stringU, "Umid: %u %%", umid_atual); // Formata a string
+
+
+        // Atualiza o conteúdo do display com animações
+        ssd1306_fill(&ssd, true); // Limpa o display
+        ssd1306_rect(&ssd, 3, 3, 122, 58, false, true); // Desenha um retângulo
+        ssd1306_draw_string(&ssd, stringT, 8, 10); // Desenha uma string
+        ssd1306_draw_string(&ssd, stringU, 8, 30); // Desenha uma string
+        ssd1306_send_data(&ssd); // Atualiza o display
+
+
+        /* // Verifica se o controle PWM está habilitado
         if (led_pwm){
             // Aumenta os valores do pwm ao se aproximar dos extremos do eixo x e y
             uint16_t pwm_x = (abs(vrx_value - 2048) > zona_morta) ? abs(vrx_value - 2048) * 2 : 0;
@@ -157,8 +278,8 @@ int main(){
             pwm_set_gpio_level(LED_PIN_RED, pwm_x); 
             pwm_set_gpio_level(LED_PIN_BLUE, pwm_y);
         
-        }
-        
+        } */
+        /* 
         // x e y são o centro do quadrado
         uint16_t x = (vrx_value * WIDTH) / max_value_joy; // Calcula a posição do eixo x 
         uint16_t y = HEIGHT - ((vry_value * HEIGHT) / max_value_joy); // Calcula a posição do eixo y
@@ -176,7 +297,7 @@ int main(){
         ssd1306_rect(&ssd, 3, 3, 122, 58, !cor, cor); // Desenha um retângulo
         ssd1306_rect(&ssd, y, x, 8, 8, true, true); // Desenha um quadrado
         ssd1306_send_data(&ssd); // Atualiza o display
-
+ */
         sleep_ms(100); 
     }
 
