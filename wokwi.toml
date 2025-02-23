@@ -1,0 +1,4 @@
+[wokwi]
+version = 1
+firmware = 'build/controle_estufa.uf2'
+elf = 'build/controle_estufa.elf'
