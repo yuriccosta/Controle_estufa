@@ -208,6 +208,8 @@ int main(){
 
     stdio_init_all();
 
+    bool mostrar_avisos = false;
+
     while (true){
         // Leitura dos valores do joystick
         adc_select_input(1);  
@@ -215,24 +217,24 @@ int main(){
         adc_select_input(0);  
         uint16_t vry_value = adc_read(); // Lê o valor do eixo y (Temperatura)
 
-        printf("Valor do eixo x: %u\n", vrx_value);
-        printf("Valor do eixo y: %u\n", vry_value);
-
         uint16_t umid_atual = (abs(vrx_value - 2048) > zona_morta) ? ((vrx_value - 16)/ max_value_joy) * 100 : 50; // Converte o valor do eixo x para a faixa de 0 a 100
         int16_t temp_atual =  ((vry_value - 16) / max_value_joy) * 95 - 10;  // Converte o valor do eixo y para a faixa de -10 a 85
 
-        printf("Temperatura: %d\n", temp_atual);
-        printf("Umidade: %u\n", umid_atual);
+
+        char avisoT[20] = "normal"; // String para armazenar o aviso de temperatura
+        char avisoU[20] = "normal"; // String para armazenar o aviso de umidade
 
         // Verifica se a temperatura está fora do intervalo
         if (temp_atual < temp_min){
             pwm_set_gpio_level(LED_PIN_RED, 0);
             pwm_set_gpio_level(LED_PIN_BLUE, 0);
             pwm_set_gpio_level(LED_PIN_GREEN, 0);
+            strcpy(avisoT, "baixa");
         } else if (temp_atual > temp_max){
             pwm_set_gpio_level(LED_PIN_RED, max_value_joy);
             pwm_set_gpio_level(LED_PIN_BLUE, 0);
             pwm_set_gpio_level(LED_PIN_GREEN, 0);
+            strcpy(avisoT, "alta");
         } else {
             // Ajusta a intensidade do LED verde de acordo com a temperatura
             pwm_set_gpio_level(LED_PIN_RED, 0);
@@ -244,60 +246,58 @@ int main(){
         if (umid_atual < umid_min){
             // Ativa umidificador
             display_desenho(0); // Desenha o padrão de umidificador
-
+            strcpy(avisoU, "baixa");
         } else if (umid_atual > umid_max){
             // Ativa desumidificador
             display_desenho(1); // Desenha o padrão de desumidificador
+            strcpy(avisoU, "alta");
         } else{
             // Desliga umidificador e desumidificador
             display_desenho(4); // Desliga os LEDs
         }
 
         // Mostra a temperatura e umidade no display
-        char stringT[20]; // String para armazenar a temperatura
-        char stringU[20]; // String para armazenar a umidade
-        sprintf(stringT, "Temp: %d C", temp_atual); // Formata a string
-        sprintf(stringU, "Umid: %u %%", umid_atual); // Formata a string
+        char stringT[5]; // String para armazenar a temperatura
+        char stringU[5]; // String para armazenar a umidade
+        
+        sprintf(stringT, "%d C", temp_atual); // Formata a string
+        sprintf(stringU, "%u %%", umid_atual); // Formata a string
 
+        uint32_t current_time = to_ms_since_boot(get_absolute_time());
+        if (current_time - last_time > 5000){
+            mostrar_avisos = !mostrar_avisos;
+            last_time = current_time;
+        }
 
-        // Atualiza o conteúdo do display com animações
-        ssd1306_fill(&ssd, true); // Limpa o display
-        ssd1306_rect(&ssd, 3, 3, 122, 58, false, true); // Desenha um retângulo
-        ssd1306_draw_string(&ssd, stringT, 8, 10); // Desenha uma string
-        ssd1306_draw_string(&ssd, stringU, 8, 30); // Desenha uma string
-        ssd1306_send_data(&ssd); // Atualiza o display
-
-
-        /* // Verifica se o controle PWM está habilitado
-        if (led_pwm){
-            // Aumenta os valores do pwm ao se aproximar dos extremos do eixo x e y
-            uint16_t pwm_x = (abs(vrx_value - 2048) > zona_morta) ? abs(vrx_value - 2048) * 2 : 0;
-            uint16_t pwm_y = (abs(vry_value - 2048) > zona_morta) ? abs(vry_value - 2048) * 2 : 0;
+        if (mostrar_avisos){ 
+            // Atualiza o conteúdo do display com animações
+            ssd1306_fill(&ssd, true); // Limpa o display
+            ssd1306_rect(&ssd, 3, 3, 122, 58, false, true); // Desenha um retângulo
+            ssd1306_draw_string(&ssd, "Temperatura", 8, 10); // Desenha uma string
+            ssd1306_draw_string(&ssd, avisoT, 8, 20); // Desenha uma string
+            ssd1306_line(&ssd, 0, 32, 127, 32, true); // Desenha uma linha divisória no meio da tela
+            ssd1306_draw_string(&ssd, "Umidade", 8, 40); // Desenha uma string
+            ssd1306_draw_string(&ssd, avisoU, 8, 50); // Desenha uma strin
+            ssd1306_send_data(&ssd); // Atualiza o display
+        } else{
+            // Atualiza o conteúdo do display com animações
+            ssd1306_fill(&ssd, true); // Limpa o display
+            ssd1306_rect(&ssd, 3, 3, 122, 58, false, true); // Desenha um retângulo
+            ssd1306_draw_string(&ssd, "Temperatura", 8, 10); // Desenha uma string
+            ssd1306_draw_string(&ssd, stringT, 8, 20); // Desenha uma string
+            ssd1306_line(&ssd, 0, 32, 127, 32, true); // Desenha uma linha divisória no meio da tela
+            ssd1306_draw_string(&ssd, "Umidade", 8, 40); // Desenha uma string
+            ssd1306_draw_string(&ssd, stringU, 8, 50); // Desenha uma string
+            ssd1306_send_data(&ssd); // Atualiza o display
             
-            // Atualiza o valor do PWM
-            pwm_set_gpio_level(LED_PIN_RED, pwm_x); 
-            pwm_set_gpio_level(LED_PIN_BLUE, pwm_y);
+            printf("Temperatura: %d C\n", temp_atual);
+            printf("Umidade: %u %%\n", umid_atual);
+        }
         
-        } */
-        /* 
-        // x e y são o centro do quadrado
-        uint16_t x = (vrx_value * WIDTH) / max_value_joy; // Calcula a posição do eixo x 
-        uint16_t y = HEIGHT - ((vry_value * HEIGHT) / max_value_joy); // Calcula a posição do eixo y
 
-        // Limita a posição do quadrado para não ultrapassar as bordas do retangulo
-        if (x > 120) x = 120;
-        if (x < 8) x = 8;
-        if (y > 56) y = 56;
-        if (y < 8) y = 8;
-
-        x = x - 4; // Ajusta a posição do quadrado para passar para a função de desenho
-        y = y - 4; // Ajusta a posição do quadrado para passar para a função de desenho
         
-        ssd1306_fill(&ssd, cor); // Limpa o display
-        ssd1306_rect(&ssd, 3, 3, 122, 58, !cor, cor); // Desenha um retângulo
-        ssd1306_rect(&ssd, y, x, 8, 8, true, true); // Desenha um quadrado
-        ssd1306_send_data(&ssd); // Atualiza o display
- */
+
+
         sleep_ms(100); 
     }
 
