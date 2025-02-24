@@ -40,6 +40,8 @@ uint sm;
 ssd1306_t ssd; // Inicializa a estrutura do display
 static volatile uint32_t last_time = 0; // Variável para armazenar o tempo do último evento
 static volatile uint32_t last_time_usb = 0; // Variável para armazenar o tempo da última mensagem USB
+static volatile uint32_t last_time_temp_normal = 0; // Variável para armazenar o tempo que a temperatura está normal
+static volatile uint32_t last_time_umid_normal = 0; // Variável para armazenar o tempo que a umidade está normal
 static volatile uint green_state = 0; // Variável para armazenar o estado do LED verde
 static volatile uint led_pwm = 1; // Variável para habilitar/desabilitar o controle PWM dos LEDs
 static volatile uint cor = 0; // Variável para armazenar a cor da borda do display
@@ -160,6 +162,21 @@ static void gpio_irq_handler(uint gpio, uint32_t events) {
    }
 }
 
+void iniciar_buzzer(uint pin) {
+    gpio_set_function(pin, GPIO_FUNC_PWM);
+    uint slice_num = pwm_gpio_to_slice_num(pin);
+    pwm_set_clkdiv(slice_num, 125);
+    pwm_set_wrap(slice_num, 1000);
+    pwm_set_gpio_level(pin, 10); //Para um som mais baixo
+    pwm_set_enabled(slice_num, true);
+}
+
+void parar_buzzer(uint pin) {
+    uint slice_num = pwm_gpio_to_slice_num(pin);
+    pwm_set_enabled(slice_num, false);
+    gpio_put(pin, 0);
+}
+
 bool repeating_timer_callback(struct repeating_timer *timer) {
     msg_t *msg = (msg_t *) timer->user_data; // Obtém a mensagem
 
@@ -173,10 +190,9 @@ bool repeating_timer_callback(struct repeating_timer *timer) {
     temp_atual = ((vry_value - 16) / max_value_joy) * 95 - 10;  // Converte o valor do eixo y para a faixa de -10 a 85
     
     
-    strcpy(msg->nivel_temp, "normal"); // String para armazenar o aviso de temperatura
-    strcpy(msg->nivel_umid, "normal"); // String para armazenar o aviso de umidade
     sprintf(msg->string_temp_atual, "%d C", temp_atual); // Formata a string
     sprintf(msg->string_umid_atual, "%u %%", umid_atual); // Formata a string
+    uint32_t current_time = to_ms_since_boot(get_absolute_time()); // Obtém o tempo atual em milissegundos
     
     // Verifica se a temperatura está fora do intervalo
     if (temp_atual < temp_min){
@@ -194,6 +210,8 @@ bool repeating_timer_callback(struct repeating_timer *timer) {
         pwm_set_gpio_level(LED_PIN_RED, 0);
         pwm_set_gpio_level(LED_PIN_BLUE, 0);
         pwm_set_gpio_level(LED_PIN_GREEN, (temp_atual - temp_min) * max_value_joy / (temp_max - temp_min));
+        strcpy(msg->nivel_temp, "normal"); 
+        last_time_temp_normal = current_time;
     }
 
     // Verifica se a umidade está fora do intervalo
@@ -208,6 +226,16 @@ bool repeating_timer_callback(struct repeating_timer *timer) {
     } else{
         // Desliga umidificador e desumidificador
         display_desenho(4); // Desliga os LEDs
+        strcpy(msg->nivel_umid, "normal");
+        last_time_umid_normal = current_time;
+    }
+
+    // Verifica se a temperatura está fora do intervalo por mais de 10 segundos
+    if (current_time - last_time_temp_normal > 10000 || current_time - last_time_umid_normal > 10000){
+        // Ativa o buzzer
+        iniciar_buzzer(BUZZER_A);
+    } else{
+        parar_buzzer(BUZZER_A);
     }
 
     return true;
@@ -315,21 +343,25 @@ int main(){
                 printf("Temperatura mínima atual: %d C\n", temp_min);
                 printf("Digite a nova temperatura mínima: ");
                 scanf("%d", &temp_min);
+                printf("Configurado\n");
                 choice = '0';
             } else if (choice == '2'){
                 printf("Temperatura máxima: %d C\n", temp_max);
                 printf("Digite a nova temperatura máxima: ");
                 scanf("%d", &temp_max);
+                printf("Configurado\n");
                 choice = '0';
             } else if (choice == '3'){
                 printf("Umidade mínima atual: %u %%\n", umid_min);
                 printf("Digite a nova umidade mínima: ");
                 scanf("%u", &umid_min);
+                printf("Configurado\n");
                 choice = '0';
             } else if (choice == '4'){
                 printf("Umidade máxima atual: %u %%\n", umid_max);
                 printf("Digite a umidade máxima atual: ");
                 scanf("%u", &umid_max);
+                printf("Configurado\n");
                 choice = '0';
             }
             current_time_usb = to_ms_since_boot(get_absolute_time());
