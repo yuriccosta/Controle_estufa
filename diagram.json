@@ -53,22 +53,6 @@
     { "type": "wokwi-vcc", "id": "vcc5", "top": -364.04, "left": -48, "attrs": {} },
     { "type": "wokwi-gnd", "id": "gnd5", "top": -268.8, "left": -48.6, "attrs": {} },
     {
-      "type": "wokwi-pushbutton-6mm",
-      "id": "btn1",
-      "top": 91.4,
-      "left": 77.6,
-      "rotate": 180,
-      "attrs": { "color": "green" }
-    },
-    {
-      "type": "wokwi-pushbutton-6mm",
-      "id": "btn2",
-      "top": 91.4,
-      "left": 29.6,
-      "rotate": 180,
-      "attrs": { "color": "green" }
-    },
-    {
       "type": "wokwi-rgb-led",
       "id": "rgb26",
       "top": 181.4,
@@ -91,6 +75,14 @@
       "left": 359.5,
       "rotate": 90,
       "attrs": {}
+    },
+    {
+      "type": "wokwi-buzzer",
+      "id": "bz1",
+      "top": 189.3,
+      "left": 359.7,
+      "rotate": 90,
+      "attrs": { "volume": "0.1" }
     }
   ],
   "connections": [
@@ -185,10 +177,6 @@
     [ "rgb26:B", "pico:GP12", "blue", [ "v-1.6", "h28.8", "v47.96" ] ],
     [ "pico:GP13", "rgb26:R", "red", [ "v0.04", "h-134.4", "v-28.8" ] ],
     [ "pico:GND.4", "oled1:GND", "black", [ "h-57.6", "v0.04", "h-124.8" ] ],
-    [ "pico:GP5", "btn1:1.l", "green", [ "h0" ] ],
-    [ "btn1:2.l", "pico:GND.1", "black", [ "h9.6", "v28.4" ] ],
-    [ "pico:GP6", "btn2:1.l", "green", [ "h0" ] ],
-    [ "pico:GND.2", "btn2:2.l", "black", [ "h-86.4", "v-57.2" ] ],
     [ "pico:GND.3", "r1:2", "black", [ "h0" ] ],
     [ "r1:1", "rgb26:COM", "black", [ "v0" ] ],
     [ "vcc6:VCC", "oled1:VCC", "red", [ "h38.4", "v28.8" ] ],
@@ -198,7 +186,9 @@
     [ "joystick1:SEL", "pico:GP22", "gray", [ "h-38.4", "v96" ] ],
     [ "joystick1:GND", "pico:GND.5", "black", [ "h-19.2", "v143.96" ] ],
     [ "pico:GP26", "joystick1:HORZ", "gold", [ "h77.11", "v-86.4" ] ],
-    [ "joystick1:VERT", "pico:GP27", "orange", [ "h-76.8", "v86.4" ] ]
+    [ "joystick1:VERT", "pico:GP27", "orange", [ "h-76.8", "v86.4" ] ],
+    [ "pico:GP21", "bz1:2", "red", [ "h0" ] ],
+    [ "pico:GND.6", "bz1:1", "black", [ "h0" ] ]
   ],
   "dependencies": {}
 }

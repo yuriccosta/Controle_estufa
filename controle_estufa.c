@@ -38,12 +38,10 @@
 PIO pio;
 uint sm;
 ssd1306_t ssd; // Inicializa a estrutura do display
-static volatile uint32_t last_time = 0; // Variável para armazenar o tempo do último evento
+static volatile uint32_t last_time_display = 0; // Variável para armazenar o tempo do último evento da main
 static volatile uint32_t last_time_usb = 0; // Variável para armazenar o tempo da última mensagem USB
 static volatile uint32_t last_time_temp_normal = 0; // Variável para armazenar o tempo que a temperatura está normal
 static volatile uint32_t last_time_umid_normal = 0; // Variável para armazenar o tempo que a umidade está normal
-static volatile uint green_state = 0; // Variável para armazenar o estado do LED verde
-static volatile uint led_pwm = 1; // Variável para habilitar/desabilitar o controle PWM dos LEDs
 static volatile uint cor = 0; // Variável para armazenar a cor da borda do display
 
 
@@ -54,15 +52,14 @@ volatile int16_t temp_atual; // Temperatura atual
 uint umid_min =  30; // Umidade mínima
 uint umid_max =  70; // Umidade máxima
 volatile uint16_t umid_atual; // Umidade atual
-int fan_med =  50; // Velocidade média do ventilador
 
 
 // Variáveis para armazenar os avisos
 typedef struct {
-    char nivel_temp[20];
-    char nivel_umid[20];
-    char string_temp_atual[6];
-    char string_umid_atual[6];
+    char nivel_temp[20]; // Nível de temperatura (baixa, normal, alta)
+    char nivel_umid[20]; // Nível de umidade (baixa, normal, alta)
+    char string_temp_atual[6]; // Temperatura atual
+    char string_umid_atual[6]; // Umidade atual
 } msg_t;
 
 
@@ -124,43 +121,7 @@ void pwm_setup(uint pino) {
 }
 
 
-void configuraGPIO(){
-    // Configuração do LED RGB
-    pwm_setup(LED_PIN_RED);
-    pwm_setup(LED_PIN_BLUE);
-    pwm_setup(LED_PIN_GREEN);
 
-    // Configura os botões
-    gpio_init(BUTTON_PIN_A);
-    gpio_set_dir(BUTTON_PIN_A, GPIO_IN);
-    gpio_pull_up(BUTTON_PIN_A);
-
-    gpio_init (SW_PIN);
-    gpio_set_dir(SW_PIN, GPIO_IN);
-    gpio_pull_up(SW_PIN);
-}
-
-
-
-static void gpio_irq_handler(uint gpio, uint32_t events) {
-    // Obtém o tempo atual em milissegundos
-   uint32_t current_time = to_ms_since_boot(get_absolute_time());
-   // Verificação de tempo para debounce
-   if (current_time - last_time > 200){
-        if(gpio == BUTTON_PIN_A){
-            // Entra no modo bootsel
-            reset_usb_boot(0, 0);
-
-        } else if (gpio == SW_PIN){
-            green_state = !green_state;
-            cor = !cor;
-            gpio_put(LED_PIN_GREEN, green_state);
-
-        }
-
-       last_time = current_time; // Atualiza o tempo do último evento
-   }
-}
 
 void iniciar_buzzer(uint pin) {
     gpio_set_function(pin, GPIO_FUNC_PWM);
@@ -192,7 +153,7 @@ bool repeating_timer_callback(struct repeating_timer *timer) {
     
     sprintf(msg->string_temp_atual, "%d C", temp_atual); // Formata a string
     sprintf(msg->string_umid_atual, "%u %%", umid_atual); // Formata a string
-    uint32_t current_time = to_ms_since_boot(get_absolute_time()); // Obtém o tempo atual em milissegundos
+    uint32_t current_time_normal = to_ms_since_boot(get_absolute_time()); // Obtém o tempo atual em milissegundos
     
     // Verifica se a temperatura está fora do intervalo
     if (temp_atual < temp_min){
@@ -211,7 +172,7 @@ bool repeating_timer_callback(struct repeating_timer *timer) {
         pwm_set_gpio_level(LED_PIN_BLUE, 0);
         pwm_set_gpio_level(LED_PIN_GREEN, (temp_atual - temp_min) * max_value_joy / (temp_max - temp_min));
         strcpy(msg->nivel_temp, "normal"); 
-        last_time_temp_normal = current_time;
+        last_time_temp_normal = current_time_normal;
     }
 
     // Verifica se a umidade está fora do intervalo
@@ -227,11 +188,11 @@ bool repeating_timer_callback(struct repeating_timer *timer) {
         // Desliga umidificador e desumidificador
         display_desenho(4); // Desliga os LEDs
         strcpy(msg->nivel_umid, "normal");
-        last_time_umid_normal = current_time;
+        last_time_umid_normal = current_time_normal;
     }
 
     // Verifica se a temperatura está fora do intervalo por mais de 10 segundos
-    if (current_time - last_time_temp_normal > 10000 || current_time - last_time_umid_normal > 10000){
+    if (current_time_normal - last_time_temp_normal > 10000 || current_time_normal - last_time_umid_normal > 10000){
         // Ativa o buzzer
         iniciar_buzzer(BUZZER_A);
     } else{
@@ -266,18 +227,15 @@ int main(){
 
 
 
-    // Configura os LEDs e botões
-    configuraGPIO();
+    // Configura o LED RGB como PWM
+    pwm_setup(LED_PIN_RED);
+    pwm_setup(LED_PIN_BLUE);
+    pwm_setup(LED_PIN_GREEN);
+
     // Configuração do ADC
     adc_init();
     adc_gpio_init(JOY_X);
     adc_gpio_init(JOY_Y);
-
-
-    // Configuração da interrupção
-    gpio_set_irq_enabled_with_callback(BUTTON_PIN_A, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
-    gpio_set_irq_enabled_with_callback(SW_PIN, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
-
 
     stdio_init_all();
 
@@ -291,16 +249,17 @@ int main(){
     // Configura um timer repetitivo para chamar a função de callback a cada 6 segundos
     add_repeating_timer_ms(6000, repeating_timer_callback, &msg, &timer);
 
-    bool mostrar_avisos = false;
-    uint32_t current_time = 1501; // Inicializa a variável de tempo para mostrar os avisos assim que iniciar o programa
+
+    bool mostrar_nivel = false;
+    uint32_t current_time_display = 1501; // Inicializa a variável de tempo para mostrar os avisos assim que iniciar o programa
     uint32_t current_time_usb = 7001; // Inicializa a variável de tempo para mostrar o menu USB assim que iniciar a conexão
-    char choice; // Variável para armazenar a escolha do usuário
+
     while (true){
-        if (current_time - last_time > 1500){
-            mostrar_avisos = !mostrar_avisos;
-            last_time = current_time;
+        if (current_time_display - last_time_display > 1500){
+            mostrar_nivel = !mostrar_nivel;
+            last_time_display = current_time_display;
         
-            if (mostrar_avisos){ 
+            if (mostrar_nivel){ 
                 // Atualiza o conteúdo do display com animações
                 ssd1306_fill(&ssd, true); // Limpa o display
                 ssd1306_rect(&ssd, 3, 3, 122, 58, false, true); // Desenha um retângulo
@@ -338,36 +297,32 @@ int main(){
                 printf("Sua escolha: ");
                 last_time_usb = current_time_usb;
             }
-            choice = getchar_timeout_us(1); // Lê a escolha do usuário em 100ms
+            char choice = getchar_timeout_us(1); // Lê a escolha do usuário em 100ms
             if (choice == '1'){
                 printf("Temperatura mínima atual: %d C\n", temp_min);
                 printf("Digite a nova temperatura mínima: ");
                 scanf("%d", &temp_min);
                 printf("Configurado\n");
-                choice = '0';
             } else if (choice == '2'){
                 printf("Temperatura máxima: %d C\n", temp_max);
                 printf("Digite a nova temperatura máxima: ");
                 scanf("%d", &temp_max);
                 printf("Configurado\n");
-                choice = '0';
             } else if (choice == '3'){
                 printf("Umidade mínima atual: %u %%\n", umid_min);
                 printf("Digite a nova umidade mínima: ");
                 scanf("%u", &umid_min);
                 printf("Configurado\n");
-                choice = '0';
             } else if (choice == '4'){
                 printf("Umidade máxima atual: %u %%\n", umid_max);
                 printf("Digite a umidade máxima atual: ");
                 scanf("%u", &umid_max);
                 printf("Configurado\n");
-                choice = '0';
             }
             current_time_usb = to_ms_since_boot(get_absolute_time());
         }
         
-        current_time = to_ms_since_boot(get_absolute_time());
+        current_time_display = to_ms_since_boot(get_absolute_time());
     }
 
     return 0;
