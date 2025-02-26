@@ -186,7 +186,7 @@ bool repeating_timer_callback(struct repeating_timer *timer) {
         strcpy(msg->nivel_umid, "alta");
     } else{
         // Desliga umidificador e desumidificador
-        display_desenho(4); // Desliga os LEDs
+        display_desenho(2); // Desliga os LEDs
         strcpy(msg->nivel_umid, "normal");
         last_time_umid_normal = current_time_normal;
     }
