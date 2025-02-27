@@ -23,9 +23,6 @@
 #define BUZZER_A 21
 #define JOY_X 27 // Joystick está de lado em relação ao que foi dito no pdf
 #define JOY_Y 26
-#define SW_PIN 22
-#define BUTTON_PIN_A 5          // Pino GPIO conectado ao botão A
-#define zona_morta 100
 #define max_value_joy 4065.0 // (4081 - 16) que são os valores extremos máximos lidos pelo meu joystick
 
 #define I2C_PORT i2c1
@@ -38,7 +35,7 @@
 PIO pio;
 uint sm;
 ssd1306_t ssd; // Inicializa a estrutura do display
-static volatile uint32_t last_time_display = 0; // Variável para armazenar o tempo do último evento da main
+static volatile uint32_t last_time_display = 0; // Variável para armazenar o tempo da última mensagem no display
 static volatile uint32_t last_time_usb = 0; // Variável para armazenar o tempo da última mensagem USB
 static volatile uint32_t last_time_temp_normal = 0; // Variável para armazenar o tempo que a temperatura está normal
 static volatile uint32_t last_time_umid_normal = 0; // Variável para armazenar o tempo que a umidade está normal
@@ -47,14 +44,14 @@ static volatile uint cor = 0; // Variável para armazenar a cor da borda do disp
 
 // Variáveis de configuração para os atuadores
 int temp_min =  20; // Temperatura mínima
-int temp_max =  35; // Temperatura máxima
+int temp_max =  37; // Temperatura máxima
 volatile int16_t temp_atual; // Temperatura atual
 uint umid_min =  30; // Umidade mínima
 uint umid_max =  70; // Umidade máxima
 volatile uint16_t umid_atual; // Umidade atual
 
 
-// Variáveis para armazenar os avisos
+// Estrutura para armazenar 
 typedef struct {
     char nivel_temp[20]; // Nível de temperatura (baixa, normal, alta)
     char nivel_umid[20]; // Nível de umidade (baixa, normal, alta)
@@ -70,12 +67,12 @@ uint padrao_led[10][LED_COUNT] = {
      1, 1, 1, 1, 1,
      0, 1, 1, 1, 0,
     }, // Umidificador Ativo (Desenho de gota)
-    {2, 0, 0, 2, 0,
-     0, 2, 0, 0, 2,
-     2, 0, 0, 2, 0,
-     0, 2, 0, 0, 2,
-     2, 0, 0, 2, 0,
-    }, // Desumidificador ativo (Desenho de Seco)
+    {2, 0, 2, 0, 2,
+     0, 2, 2, 2, 0,
+     2, 2, 2, 2, 2,
+     0, 2, 2, 2, 0,
+     2, 0, 2, 0, 2,
+    }, // Desumidificador ativo (Desenho de Sol)
     {0, 0, 0, 0, 0,
      0, 0, 0, 0, 0,
      0, 0, 0, 0, 0,
@@ -88,12 +85,12 @@ uint padrao_led[10][LED_COUNT] = {
 int ordem[LED_COUNT] = {0, 1, 2, 3, 4, 9, 8, 7, 6, 5, 10, 11, 12, 13, 14, 19, 18, 17, 16, 15, 20, 21, 22, 23, 24};  
 
 
-//rotina para definição da intensidade de cores do led
+// Rotina para definição da intensidade de cores do led
 uint32_t matrix_rgb(unsigned r, unsigned g, unsigned b){
-    // Para não ficar forte demais, a intensidade de cor é multiplicada por 50
     return (g << 24) | (r << 16) | (b << 8);
 }
 
+// Rotina para desenhar o padrão de LED
 void display_desenho(int number){
     uint32_t valor_led;
 
@@ -102,7 +99,7 @@ void display_desenho(int number){
         if (padrao_led[number][ordem[24 - i]] == 1){
             valor_led = matrix_rgb(0, 0, 10); // Azul
         } else if (padrao_led[number][ordem[24 - i]] == 2){
-            valor_led = matrix_rgb(30, 10, 0); // Laranja
+            valor_led = matrix_rgb(30, 10, 0); // Amarelo
         } else{
             valor_led = matrix_rgb(0, 0, 0); // Desliga o LED
         }
@@ -111,31 +108,35 @@ void display_desenho(int number){
     }
 }
 
+// Configuração do PWM
 void pwm_setup(uint pino) {
-    gpio_set_function(pino, GPIO_FUNC_PWM);         // Configura o pino como saída PWM
-    uint slice = pwm_gpio_to_slice_num(pino);         // Obtém o slice correspondente
+    gpio_set_function(pino, GPIO_FUNC_PWM);   // Configura o pino como saída PWM
+    uint slice = pwm_gpio_to_slice_num(pino); // Obtém o slice correspondente
     
-    pwm_set_wrap(slice, max_value_joy);
+    pwm_set_wrap(slice, max_value_joy);  // Define o valor máximo do PWM
 
     pwm_set_enabled(slice, true);  // Habilita o slice PWM
 }
 
 
 
-
+// Função para iniciar o buzzer
 void iniciar_buzzer(uint pin) {
     gpio_set_function(pin, GPIO_FUNC_PWM);
-    uint slice_num = pwm_gpio_to_slice_num(pin);
-    pwm_set_clkdiv(slice_num, 125);
-    pwm_set_wrap(slice_num, 1000);
-    pwm_set_gpio_level(pin, 10); //Para um som mais baixo
+    uint slice_num = pwm_gpio_to_slice_num(pin); // Obtém o slice correspondente
+
+    pwm_set_clkdiv(slice_num, 125); // Define o divisor de clock
+    pwm_set_wrap(slice_num, 1000);  // Define o valor máximo do PWM
+
+    pwm_set_gpio_level(pin, 10); //Para um som mais baixo foi colocado em 10
     pwm_set_enabled(slice_num, true);
 }
 
+// Função para parar o buzzer
 void parar_buzzer(uint pin) {
-    uint slice_num = pwm_gpio_to_slice_num(pin);
-    pwm_set_enabled(slice_num, false);
-    gpio_put(pin, 0);
+    uint slice_num = pwm_gpio_to_slice_num(pin); // Obtém o slice correspondente
+    pwm_set_enabled(slice_num, false); // Desabilita o slice PWM
+    gpio_put(pin, 0); // Coloca o pino em nível para garantir que o buzzer está desligado
 }
 
 bool repeating_timer_callback(struct repeating_timer *timer) {
@@ -147,7 +148,7 @@ bool repeating_timer_callback(struct repeating_timer *timer) {
     adc_select_input(0);  
     uint16_t vry_value = adc_read(); // Lê o valor do eixo y (Temperatura)
 
-    umid_atual = ((vrx_value - 16)/ max_value_joy) * 100; // Converte o valor do eixo x para a faixa de 0 a 100
+    umid_atual = ((vrx_value - 16) / max_value_joy) * 100; // Converte o valor do eixo x para a faixa de 0 a 100
     temp_atual = ((vry_value - 16) / max_value_joy) * 95 - 10;  // Converte o valor do eixo y para a faixa de -10 a 85
     
     
@@ -297,27 +298,27 @@ int main(){
                 printf("Sua escolha: ");
                 last_time_usb = current_time_usb;
             }
-            char choice = getchar_timeout_us(1); // Lê a escolha do usuário em 100ms
+            char choice = getchar_timeout_us(1); // Lê a escolha do usuário em 1us
             if (choice == '1'){
                 printf("Temperatura mínima atual: %d C\n", temp_min);
                 printf("Digite a nova temperatura mínima: ");
                 scanf("%d", &temp_min);
-                printf("Configurado\n");
+                printf("\nConfigurado\n");
             } else if (choice == '2'){
                 printf("Temperatura máxima: %d C\n", temp_max);
                 printf("Digite a nova temperatura máxima: ");
                 scanf("%d", &temp_max);
-                printf("Configurado\n");
+                printf("\nConfigurado\n");
             } else if (choice == '3'){
                 printf("Umidade mínima atual: %u %%\n", umid_min);
                 printf("Digite a nova umidade mínima: ");
                 scanf("%u", &umid_min);
-                printf("Configurado\n");
+                printf("\nConfigurado\n");
             } else if (choice == '4'){
                 printf("Umidade máxima atual: %u %%\n", umid_max);
                 printf("Digite a umidade máxima atual: ");
                 scanf("%u", &umid_max);
-                printf("Configurado\n");
+                printf("\nConfigurado\n");
             }
             current_time_usb = to_ms_since_boot(get_absolute_time());
         }
