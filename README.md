@@ -48,4 +48,4 @@ O firmware foi desenvolvido em C utilizando o SDK do Raspberry Pi Pico e integra
 
 ## Vídeo de Demonstração
 Assista à demonstração do projeto em execução:  
-[Vídeo Demonstrativo]()
+[Vídeo Demonstrativo](https://youtu.be/slr7jHzEJRI)
